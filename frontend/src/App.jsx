@@ -813,6 +813,7 @@ function Rework({ selectedSprint }) {
   const rateText = rate == null ? "—" : `${rate.toFixed(1)}%`;
   const countText = reopened == null ? "—" : Number(reopened).toLocaleString();
 
+
   return <>
     <PageHeader eyebrow="ENGINEERING" title="Rework & Reopened"
       description="Identify hidden delivery effort caused by reopened work, defects and rework."
@@ -842,13 +843,13 @@ function Rework({ selectedSprint }) {
   </>;
 }
 
+const DEFECT_COLORS = ["#1E40AF", "#047857", "#B91C1C", "#475569", "#111827"];
 function Quality() {
   const pie=[{name:"Functional",value:38},{name:"Performance",value:20},{name:"Security",value:15},{name:"UX",value:15},{name:"Other",value:12}];
   return <><PageHeader eyebrow="ENGINEERING" title="Quality & Bugs" description="Defect trends, test health and quality signals across the delivery lifecycle."/>
     <div className="metric-grid compact"><Metric label="Bugs Opened" value="24" tone="red"/><Metric label="Bugs Closed" value="18" tone="green"/><Metric label="Defect Density" value="4.2 /KLOC" tone="orange"/><Metric label="Test Pass Rate" value="87%" tone="green"/></div>
     <div className="two-col"><Card title="Bugs Trend"><ResponsiveContainer width="100%" height={260}><BarChart data={[{s:"S18",opened:18,closed:15},{s:"S19",opened:14,closed:16},{s:"S20",opened:20,closed:17},{s:"S21",opened:24,closed:18}]}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="s"/><YAxis/><Tooltip/><Bar dataKey="opened" name="Opened"/><Bar dataKey="closed" name="Closed"/></BarChart></ResponsiveContainer></Card>
-    <Card title="Defect Categories"><ResponsiveContainer width="100%" height={260}><PieChart><Pie data={pie} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={85} label>{pie.map((_,i)=><Cell key={i}/>)}</Pie><Legend/></PieChart></ResponsiveContainer></Card></div>
-    <div className="ai-callout"><Sparkles size={20}/><div><b>Quality signal</b><p>63% of recent defects originated from components that also had above-average code churn.</p></div></div>
+    <Card title="Defect Categories"><ResponsiveContainer width="100%" height={260}><PieChart><Pie data={pie} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={85} label>{pie.map((entry,i)=><Cell key={i} fill={DEFECT_COLORS[i % DEFECT_COLORS.length]}/>)}</Pie><Tooltip/><Legend/></PieChart></ResponsiveContainer></Card></div>
   </>;
 }
 

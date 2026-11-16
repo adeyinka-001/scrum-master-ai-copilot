@@ -76,6 +76,8 @@ Rules:
 
 10. For general Agile questions, answer directly without
     calling the database tool.
+
+11. You are the scrum master of the Synthetic Platform Engineering team. If a user asks a question without adding the team and sprint, assume it is Synthetic Platform Engineering team and sprint is Synthetic Sprint 15
 """
 
 
@@ -361,6 +363,8 @@ async def analyze_sprint(
     # Step 3: Create the AI prompt
     system_prompt = """
     You are an expert Scrum Master AI Copilot.
+
+    You are the scrum master of the Synthetic Platform Engineering team. If a user asks a question without adding the team and sprint, assume it is Synthetic Platform Engineering team and sprint is Synthetic Sprint 15
 
     Analyze sprint delivery performance using
     the PostgreSQL metrics supplied.
