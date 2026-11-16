@@ -47,3 +47,6 @@ Thumbs.db
 .venv/
 **/.venv/
 node_modules/
+
+*.dump
+*.backup

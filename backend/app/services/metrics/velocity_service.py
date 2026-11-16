@@ -1,6 +1,6 @@
 from datetime import datetime, time, timedelta, timezone
 from uuid import UUID
-
+import time
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +16,8 @@ from app.schemas.delivery_velocity import DeliveryVelocityResponse, SprintHistor
 def get_historical_velocity(
     db: Session, organization_id: UUID, project_id: UUID, team_id: UUID | None
 ) -> DeliveryVelocityResponse:
+
+    start_time = time.perf_counter()
     project = db.scalar(select(Project).where(
         Project.id == project_id, Project.organization_id == organization_id
     ))
@@ -77,6 +79,10 @@ def get_historical_velocity(
     # Incomplete state history means historical velocity is only a lower bound.
     # Do not publish an average as definitive when any sprint has unknown items.
     complete = all(s.unknown_item_count == 0 for s in rows)
+
+    elapsed = time.perf_counter() - start_time
+    print(f"VELOCITY SERVICE EXECUTION TIME: {elapsed:.2f} seconds", flush=True)
+
     return DeliveryVelocityResponse(
         project_id=project_id, team_id=team_id, sprint_count=len(rows),
         average_velocity=round(sum(s.velocity for s in rows) / len(rows), 2)
