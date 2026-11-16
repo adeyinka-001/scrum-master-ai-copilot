@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,11 +18,18 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+frontend_url = os.getenv(
+    "FRONTEND_URL",
+    "http://localhost:5173"
+)
 
 # Allow requests from the React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
+    allow_origins=[
+        "http://localhost:5173",
+        frontend_url,
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
