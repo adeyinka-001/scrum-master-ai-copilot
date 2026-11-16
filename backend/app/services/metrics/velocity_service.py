@@ -2,9 +2,12 @@ import time as timer
 from datetime import datetime, time, timedelta, timezone
 from uuid import UUID
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func, Date, text
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+
+from collections import defaultdict
 from app.models.project import Project
 from app.models.sprint import Sprint
 from app.models.sprint_commitment import SprintCommitment
@@ -30,51 +33,132 @@ def get_historical_velocity(
     if team_id is not None:
         query = query.where(Sprint.team_id == team_id)
     sprints = db.scalars(query.order_by(Sprint.end_date, Sprint.id)).all()
-    rows = []
-    for sprint in sprints:
-        # Exclusive UTC midnight after sprint end date. Confirm your business timezone.
-        cutoff = datetime.combine(sprint.end_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
-        commitments = db.execute(
-            select(SprintCommitment, WorkItem)
-            .join(WorkItem, SprintCommitment.work_item_id == WorkItem.id)
-            .where(SprintCommitment.sprint_id == sprint.id)
+
+    sprint_ids = [sprint.id for sprint in sprints]
+
+    commitment_rows = []
+
+    if sprint_ids:
+        commitment_rows = db.execute(
+            select(
+                SprintCommitment.sprint_id,
+                SprintCommitment.work_item_id,
+                SprintCommitment.committed_story_points,
+            ).where(
+                SprintCommitment.sprint_id.in_(sprint_ids)
+            )
         ).all()
+
+        # Map each sprint to its historical cutoff.
+        sprint_cutoffs = {
+            sprint.id: datetime.combine(
+                sprint.end_date + timedelta(days=1),
+                time.min,
+                tzinfo=timezone.utc,
+            )
+            for sprint in sprints
+        }
+
+        # Find the latest state for each committed work item
+        # as of the end of its sprint.
+        ranked_states = (
+            select(
+                SprintCommitment.sprint_id.label("sprint_id"),
+                SprintCommitment.work_item_id.label("work_item_id"),
+                WorkItemStateHistory.new_state.label("state"),
+                func.row_number().over(
+                    partition_by=(
+                        SprintCommitment.sprint_id,
+                        SprintCommitment.work_item_id,
+                    ),
+                    order_by=(
+                        WorkItemStateHistory.changed_at.desc(),
+                        WorkItemStateHistory.recorded_at.desc(),
+                        WorkItemStateHistory.id.desc(),
+                    ),
+                ).label("rn"),
+            )
+            .join(
+                Sprint,
+                Sprint.id == SprintCommitment.sprint_id,
+            )
+            .join(
+                WorkItemStateHistory,
+                WorkItemStateHistory.work_item_id
+                == SprintCommitment.work_item_id,
+            )
+            .where(
+                SprintCommitment.sprint_id.in_(sprint_ids),
+                WorkItemStateHistory.changed_at
+                < func.timezone(
+                    "UTC",
+                    func.cast(Sprint.end_date, Date)
+                    + text("INTERVAL '1 day'")
+                ),
+            )
+            .subquery()
+        )
+        state_rows = db.execute(
+            select(
+                ranked_states.c.sprint_id,
+                ranked_states.c.work_item_id,
+                ranked_states.c.state,
+            ).where(ranked_states.c.rn == 1)
+        ).all()
+
+        state_lookup = {
+            (row.sprint_id, row.work_item_id): row.state
+            for row in state_rows
+        }
+
+    commitments_by_sprint = defaultdict(list)
+
+    for row in commitment_rows:
+        commitments_by_sprint[row.sprint_id].append(row)
+
+    rows = []
+
+    for sprint in sprints:
+        commitments = commitments_by_sprint[sprint.id]
+
         if not commitments:
             continue
+
         committed = completed = unknown = 0.0
         unknown_count = 0
-        for commitment, item in commitments:
+
+        for commitment in commitments:
             points = float(commitment.committed_story_points)
             committed += points
-            # Determine state at cutoff, not the current state.
-            # History must be complete to make this conclusive.
-            state = db.scalar(
-                select(WorkItemStateHistory.new_state)
-                .where(WorkItemStateHistory.work_item_id == item.id,
-                       WorkItemStateHistory.changed_at < cutoff)
-                .order_by(WorkItemStateHistory.changed_at.desc(),
-                          WorkItemStateHistory.recorded_at.desc(),
-                          WorkItemStateHistory.id.desc())
-                .limit(1)
+
+            state = state_lookup.get(
+                (sprint.id, commitment.work_item_id)
             )
+
             if state is None:
-                # completed_at is a useful fallback ONLY if no subsequent reopen
-                # is known; do not assume incomplete history is authoritative.
                 unknown += points
                 unknown_count += 1
             elif state == "done":
                 completed += points
-        rows.append(SprintHistoricalVelocity(
-            sprint_id=sprint.id, sprint_name=sprint.name,
-            start_date=sprint.start_date, end_date=sprint.end_date,
-            committed_points=round(committed, 2),
-            completed_points=round(completed, 2),
-            velocity=round(completed, 2),
-            predictability=round(completed / committed * 100, 2)
-            if committed > 0 and unknown_count == 0 else None,
-            unknown_points=round(unknown, 2),
-            unknown_item_count=unknown_count,
-        ))
+
+        rows.append(
+            SprintHistoricalVelocity(
+                sprint_id=sprint.id,
+                sprint_name=sprint.name,
+                start_date=sprint.start_date,
+                end_date=sprint.end_date,
+                committed_points=round(committed, 2),
+                completed_points=round(completed, 2),
+                velocity=round(completed, 2),
+                predictability=(
+                    round(completed / committed * 100, 2)
+                    if committed > 0 and unknown_count == 0
+                    else None
+                ),
+                unknown_points=round(unknown, 2),
+                unknown_item_count=unknown_count,
+            )
+        )
 
     # Incomplete state history means historical velocity is only a lower bound.
     # Do not publish an average as definitive when any sprint has unknown items.
